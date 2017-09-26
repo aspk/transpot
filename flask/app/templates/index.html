@@ -7,27 +7,70 @@
     <div id="googleMap" style="width:100%;height:90vh;"></div>
 
     <script>
-	function myMap() {
-	    var mapProp= {
-    		center:new google.maps.LatLng(40.779244,-73.969134),
-    		zoom:11,
-	    };
-	    var map=new google.maps.Map(document.getElementById("googleMap"),mapProp);
-	    var marker = new google.maps.Marker({position: (40.779244,-73.969134), map: map})
-	    google.maps.event.addListener(map, 'click', function(event) {placeMarker(map, event.latLng, marker);});
-	}
+        function myMap() {
+            var mapProp = {
+                center: new google.maps.LatLng(40.779244, -73.969134),
+                zoom: 13,
+            };
+            var map = new google.maps.Map(document.getElementById("googleMap"), mapProp);
+            var origin = new google.maps.Marker({position: null, map: map})
+            var destination = new google.maps.Marker({position: null, map: map})
+            var markers = []
+            var prevLocation = []
+            google.maps.event.addListener(map, 'click', function (event) {
+                placeMarker(map, event.latLng, origin, destination, markers, prevLocation);
+            });
+        }
 
-	function placeMarker(map, location, marker, infowindow) {
-		$.getJSON($SCRIPT_ROOT + '/api', {"lat": location.lat(),"long": location.lng()}, 
-			function(data) {
-				for (x in data) {
-					var pos = new google.maps.LatLng(data[x].latitude,data[x].longitude);
-					var bus_marker = new google.maps.Marker({position: pos, map: map});
-				}
-				marker.setPosition(location);
-			});
-      	return false;
-	};
+        function placeMarker(map, location, origin, destination, markers, prevLocation) {
+            if (prevLocation.length === 0) {
+                prevLocation.push(location);
+                $.getJSON($SCRIPT_ROOT + '/redis', {"lat": location.lat(), "long": location.lng()},
+                                function (data) {
+                                    clearMarkers(markers);
+                                    markers.length = 0;
+                                    for (x in data) {
+                                        var pos = new google.maps.LatLng(data[x].latitude, data[x].longitude);
+                                        if (data[x].type == "bus") {
+                                            var bus_image = {
+                                                url: 'http://cdn.mysitemyway.com/etc-mysitemyway/icons/legacy-previews/icons-256/3d-glossy-orange-orbs-icons-transport-travel/106696-3d-glossy-orange-orb-icon-transport-travel-transportation-bus3-sc44.png',
+                                                                scaledSize: new google.maps.Size(50,50)
+                                                            };
+                                            markers.push(new google.maps.Marker({position: pos, map: map, icon: bus_image}));
+                                        } else if (data[x].type == "taxi") {
+                                            var taxi_image = {
+                                                url: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRL8P8XYdJ1dCMGuqeo2R62gP92zZv03clyuBaZXiJ9W8LZdehK',
+                                                scaledSize: new google.maps.Size(40, 40)
+                                            }
+                                            markers.push(new google.maps.Marker({position: pos, map: map, icon: taxi_image}));
+                                        }
+
+                                    }
+                                    origin.setPosition(location);
+                                });
+            } else {
+                $.getJSON($SCRIPT_ROOT + '/cass', {"lat1": prevLocation[0].lat(), "long1": prevLocation[0].lng(), "lat2": location.lat(), "long2": location.lng()},
+                                function (data) {
+                                    var pos = new google.maps.LatLng(location.lat(), location.lng());
+                                    var infowindow = new google.maps.InfoWindow({
+                                        content: 'duration: ' + (data[0].duration/60).toFixed(2) +
+                                                ' min <br>cost: $' + data[0].cost.toFixed(2) + '<br> count:' + data[0].count
+                                    });
+                                    destination.setPosition(location)
+                                    infowindow.open(map, destination);                                    
+                                });
+                                prevLocation.length = 0; 
+                    }
+
+            return false;
+        }
+
+        function clearMarkers(markers) {
+            for (i in markers) {
+                markers[i].setMap(null);
+            }
+        }
+        ;
     </script>
     <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBXKvgZDurJurDKeZcEw97Sut5ENMM-DLA&amp;callback=myMap"></script>
 </body>
