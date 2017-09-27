@@ -5,7 +5,7 @@ from kafka import KafkaProducer, KafkaConsumer
 from datetime import datetime
 import time
 
-source_file = '/tmp/green_tripdata_2016-01.csv'
+source_file = '/tmp/201701-citibike-tripdata.csv'
 
 def genData(topic):
     producer = KafkaProducer(bootstrap_servers='localhost:9092', key_serializer=str.encode, value_serializer=str.encode)
@@ -15,9 +15,9 @@ def genData(topic):
             for line in f:
                 producer.send(topic, key = str(count), value = line.rstrip())
 		print (line.rstrip())
-		if (count % 100 == 0):
+		if (count % 100 ==0) :
 	        	time.sleep(0.1)  # Creating some delay to allow proper rendering of the cab locations on the map
         	count =count+1
         source_file.close()
 
-genData("TaxiData")
+genData("BikeData")
