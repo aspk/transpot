@@ -1,27 +1,28 @@
-# This program implements a kafka consumer that stores a data stream to Redis. It is subscribed to one topic (all cab data). 
-import os
-import sys
+# This program implements a kafka consumer that stores a data stream to Redis. It is subscribed to one topic (all bus data). 
 from kafka import KafkaProducer, KafkaConsumer
-from datetime import datetime
 from redis import StrictRedis
 	
-# Function for storing data from the producer into a temporary file (which is later stored to HDFS through another function call) 
 def consume_topic(topic, group):
     print "Consumer Loading topic '%s' in consumer group %s" % (topic, group)
     consumer = KafkaConsumer(topic, group_id=group, bootstrap_servers=['localhost:9092'])
+    count = 1
+    list = []
     for message in consumer:
-	print (message)
 	tmp = message.value.split(',')
-	timestamp = tmp[0]
+	if (tmp[0] == 'timestamp'):
+	    continue
+
+	timestamp = tmp[0].split('T')[1][:-1]
 	vehicle_id = tmp[1]
 	lat = tmp[2]
-	log = tmp[3]
-	print "timestamp: %s" %(timestamp)
-	print "vehicle_id: %s" %(vehicle_id)
-	print "latitude: %s" %(lat)
-	print "longitude: %s" %(log)
-	if (timestamp != 'timestamp'):
-	    redis_conn.geoadd(group, float(lat), float(log), vehicle_id)
+	log = tmp[3]	
+	list.extend([float(log), float (lat), str(vehicle_id) + " " +str(timestamp)])
+	print (timestamp)
+	if (count % 1000 == 0):
+	    redis_conn.geoadd(group, *list)
+	    list = []
+	count = count + 1
+	print (count)
 
 
 if __name__ == '__main__':
