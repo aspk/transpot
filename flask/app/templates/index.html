@@ -2,66 +2,106 @@
 {% block body %}
 <body>
 
-    <h1>My First Google Map</h1>
-
-    <div id="googleMap" style="width:100%;height:90vh;"></div>
+    <div id="googleMap" style="width:100%;height:100vh;"></div>
 
     <script>
         function myMap() {
             var mapProp = {
                 center: new google.maps.LatLng(40.779244, -73.969134),
-                zoom: 13,
+                zoom: 15,
             };
             var map = new google.maps.Map(document.getElementById("googleMap"), mapProp);
+            
+            //Initialize the markers, infowindow, etc.
+            //prevLocation is used for store the previous click location
+            //It is needed to differentiate the behavior between first and second click
+            //markers[] is for the nearby vehicles
             var origin = new google.maps.Marker({position: null, map: map})
             var destination = new google.maps.Marker({position: null, map: map})
-            var markers = []
             var prevLocation = []
+            var markers =[] 
+            var infowindow = new google.maps.InfoWindow({
+                                        content: null
+                                    });
+            
             google.maps.event.addListener(map, 'click', function (event) {
-                placeMarker(map, event.latLng, origin, destination, markers, prevLocation);
+                placeMarker(map, event.latLng, origin, destination, markers, prevLocation, infowindow);
             });
         }
 
-        function placeMarker(map, location, origin, destination, markers, prevLocation) {
+        function placeMarker(map, location, origin, destination, markers, prevLocation, infowindow) {
+            // when prevLocation is empty, it is the first click and nearby vehicles will be shown
             if (prevLocation.length === 0) {
                 prevLocation.push(location);
                 $.getJSON($SCRIPT_ROOT + '/redis', {"lat": location.lat(), "long": location.lng()},
-                                function (data) {
-                                    clearMarkers(markers);
-                                    markers.length = 0;
-                                    for (x in data) {
-                                        var pos = new google.maps.LatLng(data[x].latitude, data[x].longitude);
-                                        if (data[x].type == "bus") {
-                                            var bus_image = {
-                                                url: 'http://cdn.mysitemyway.com/etc-mysitemyway/icons/legacy-previews/icons-256/3d-glossy-orange-orbs-icons-transport-travel/106696-3d-glossy-orange-orb-icon-transport-travel-transportation-bus3-sc44.png',
-                                                                scaledSize: new google.maps.Size(50,50)
-                                                            };
-                                            markers.push(new google.maps.Marker({position: pos, map: map, icon: bus_image}));
-                                        } else if (data[x].type == "taxi") {
-                                            var taxi_image = {
-                                                url: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRL8P8XYdJ1dCMGuqeo2R62gP92zZv03clyuBaZXiJ9W8LZdehK',
-                                                scaledSize: new google.maps.Size(40, 40)
-                                            }
-                                            markers.push(new google.maps.Marker({position: pos, map: map, icon: taxi_image}));
-                                        }
-
-                                    }
-                                    origin.setPosition(location);
-                                });
+                    function (data) {
+                        clearMarkers(markers);
+                        markers.length = 0;
+                        
+                        var vehicleid = []
+                        for (x in data) {
+                            var pos = new google.maps.LatLng(data[x].latitude, data[x].longitude);
+                            vehicleid.push(data[x].vehicleid)
+                            if (data[x].type == "bus") {
+                                //Only the latest location will be shown from a single bus
+                                var index = indexOf(vehicleid, data[x].vehicleid)
+                                var bus_image = {
+                                    url: 'http://files.softicons.com/download/web-icons/awt-travel-blue-icons-by-awt-media/png/128x128/AWT-Bus.png',
+                                    scaledSize: new google.maps.Size(25,25)
+                                };
+                                
+                                if (index == x) {
+                                    markers.push(new google.maps.Marker({position: pos, map: map, icon: bus_image}));
+                                } else {
+                                    markers[index].setPosition(pos);
+                                    markers.push(new google.maps.Marker({position: pos, map: null, icon: bus_image}));
+                                }
+                            } else if (data[x].type == "taxi") {
+                                var taxi_image = {
+                                    url: 'http://icons.iconarchive.com/icons/elegantthemes/beautiful-flat/128/taxi-icon.png',
+                                    scaledSize: new google.maps.Size(25, 25)
+                                }
+                                
+                                markers.push(new google.maps.Marker({position: pos, map: map, icon: taxi_image}));
+                            } else if (data[x].type == "bike"){
+                                var bike_image = {
+                                    url: 'http://icons.iconarchive.com/icons/icons-land/points-of-interest/256/Bicycle-Green-icon.png',
+                                    scaledSize: new google.maps.Size(20, 20)
+                                }
+                                
+                                markers.push(new google.maps.Marker({position: pos, map: map, icon: bike_image}));
+                            }
+                        }
+                        
+                        origin.setPosition(location);
+                    });
             } else {
+                // when the prevLocation is not empty, i.e., user clicks second time
+                // Cassandra will be queried for the historical average between start and end points 
                 $.getJSON($SCRIPT_ROOT + '/cass', {"lat1": prevLocation[0].lat(), "long1": prevLocation[0].lng(), "lat2": location.lat(), "long2": location.lng()},
-                                function (data) {
-                                    var pos = new google.maps.LatLng(location.lat(), location.lng());
-                                    var infowindow = new google.maps.InfoWindow({
-                                        content: 'duration: ' + (data[0].duration/60).toFixed(2) +
-                                                ' min <br>cost: $' + data[0].cost.toFixed(2) + '<br> count:' + data[0].count
-                                    });
-                                    destination.setPosition(location)
-                                    infowindow.open(map, destination);                                    
-                                });
-                                prevLocation.length = 0; 
-                    }
-
+                    function (data) {
+                        var pos = new google.maps.LatLng(location.lat(), location.lng());
+                        var message = '';
+                        var curMessage = '';
+                        for (x in data) {
+                            if (data[x].type == 'taxi') {
+                                curMessage = 'type: '+ data[x].type + '<br>duration: ' + (data[x].duration/60).toFixed(2) +
+                                             ' min <br>cost: $' + data[x].cost.toFixed(2) 
+                                             + '<br>carbon footprint: ' +(data[x].distance *1.22).toFixed(2) + ' pounds of CO2 emission<br>'
+                            } else {
+                                curMessage =  'type: '+ data[x].type + '<br>duration: ' + (data[x].duration/60).toFixed(2) +
+                                                  ' min <br>calories burnt: ' + (data[x].duration * 650/3600).toFixed(2) + '<br>'
+                            }
+                            message = message + curMessage
+                        }
+                        
+                        infowindow.setContent(message)
+                        infowindow.open(map, destination);                                    
+                        destination.setPosition(location)
+                        prevLocation.length = 0;
+                    });
+                                 
+            }
             return false;
         }
 
@@ -70,7 +110,15 @@
                 markers[i].setMap(null);
             }
         }
-        ;
+        
+        function indexOf(a, obj) {
+            for (var i = 0; i < a.length; i++) {
+                if (a[i] === obj) {
+                    return i;
+                }
+            }
+            return -1;
+        }
     </script>
     <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBXKvgZDurJurDKeZcEw97Sut5ENMM-DLA&amp;callback=myMap"></script>
 </body>
