@@ -4,7 +4,6 @@ import org.apache.spark.streaming._
 import org.apache.spark.streaming.kafka._
 import _root_.kafka.serializer.StringDecoder
 import magellan.{Point, PolyLine, Polygon}
-import org.apache.spark.sql._
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.cassandra._
@@ -12,16 +11,32 @@ import org.apache.spark.sql.magellan.dsl.expressions._
 import com.redis.RedisClient
 import org.apache.spark.rdd.RDD
 import org.gavaghan.geodesy._
+import java.text.SimpleDateFormat
+import scala.io.Source
+import play.api.libs.json._
+
+/* This app directly consumes from Kafka producers.
+   The ingested data were first cleaned based on some reasonable rules.
+   The trips were saved to the Cassandra database for future use.
+   Then it geo-joins and aggregates the trip start and end points as the neighborhoods.
+     The new york city was divided into ~300 neighborhoods area.
+   Finally, the historical average was computed and the result was saved to Cassandra.
+*/
 
 object App {
+
+  val filename = "configurations.json"
+  val json = Json.parse(Source.fromFile(filename).getLines().mkString)
+
   def main(args: Array[String]) {
+
     val conf = new SparkConf().setAppName("TranSpot")
       .set("spark.worker.cleanup.enabled", "True")
-      .set("spark.cassandra.connection.host", "172.31.6.66")
+      .set("spark.cassandra.connection.host", json("CASSANDRA_IP").toString())
     val sc = new SparkContext(conf)
     val ssc = new StreamingContext(sc, Seconds(3))
     val kafkaParams = Map[String, String](
-      "bootstrap.servers" -> "172.31.5.117:9092")
+      "bootstrap.servers" -> json("KAFKA_IP").toString())
 
     val spark = SparkSessionSingleton.getInstance(sc.getConf)
     import spark.implicits._
@@ -29,39 +44,46 @@ object App {
     val neighborhoods = spark.sqlContext.read
       .format("magellan")
       .option("type", "geojson")
-      .load("hdfs://172.31.4.94:9000/tmp/neighborhoods/")
+      .load(json("NEIGHBORHOODS_FILE").toString())
       .select($"polygon", $"metadata" ("neighborhood").as("neighborhood"))
 
     val topic = ("TaxiData","BikeData")
+
     val topics1 = Set(topic._1)
     val stream1 = KafkaUtils.createDirectStream[String, String, StringDecoder, StringDecoder](
       ssc, kafkaParams, topics1)
+    val taxiIndex = new Index(-1,0,1,2,3,4,5,6,-1,7)
 
-    stream1.map { x => x._2.split(",") }.foreachRDD { rdd =>
-      streamProcessing (rdd, topic._1, neighborhoods, sc, spark)
+    stream1.foreachRDD { rdd =>
+      streamProcessing (rdd, topic._1, neighborhoods, sc, spark, taxiIndex)
     }
 
     val topics2 = Set(topic._2)
     val stream2 = KafkaUtils.createDirectStream[String, String, StringDecoder, StringDecoder](
       ssc, kafkaParams, topics2)
+    val bikeIndex = new Index(6,0,1,2,3,4,5,-1,7,-1)
 
-    stream2.map { x => x._2.split(",") }.foreachRDD { rdd =>
-      streamProcessing (rdd, topic._2, neighborhoods, sc, spark)
+    stream2.foreachRDD { rdd =>
+      streamProcessing (rdd, topic._2, neighborhoods, sc, spark, bikeIndex)
     }
 
     ssc.start()
     ssc.awaitTermination()
   }
 
-  def streamProcessing(rdd: RDD[Array[String]], topic: String, neighborhoods: DataFrame, sc:SparkContext, spark: SparkSession) : Unit = {
+  def streamProcessing(rdd: RDD[(String,String)], topic: String, neighborhoods: DataFrame, sc:SparkContext, spark: SparkSession, index: Index) : Unit = {
     import spark.implicits._
     val trans_type= topic.toLowerCase.replace("data","")
     val keyspace = "transpot"
 
+    if (rdd.isEmpty()) {
+      return
+    }
+
     // Ingest the cleaned data and save each trip to cassandra as the data warehouse
-    // GPS information was striped off to send to redis
+    // GPS information was sent to redis
     val transactions = rdd.map { x =>
-      ingestData(x, trans_type)
+      ingestData(x, trans_type, index)
     }.filter(x => x match {
       case null => false
       case Record(id, pickup_longitude,pickup_latitude,pickup_date,pickup_time,dropoff_longitude,dropoff_latitude, dropoff_date, dropoff_time, cost, duration, distance) => true
@@ -110,51 +132,48 @@ object App {
           "distance" as "_7"))
   }
 
-  def ingestData(row: Array[String], trans_type: String): Record = {
+  def ingestData(message: (String,String), trans_type: String, index: Index): Record = {
+    val row = message._2.split(',')
 
-    if (row.length <= 1 || (!isAllDigits(row(0)))) { // remove header and empty rows
+    if (trans_type == "taxi") { //parse for taxi data
+      val pickup_longitude = row(index.pickup_long).toDouble
+      val pickup_latitude = row(index.pickup_lat).toDouble
+      val dropoff_longitude = row(index.dropoff_long).toDouble
+      val dropoff_latitude = row(index.dropoff_lat).toDouble
+      val cost = row(index.cost).toFloat
+      val distance = row(index.distance).toFloat
+      val pickup_date = row(index.pickup_datetime).split("\\s+")(0)
+      val pickup_time = row(index.pickup_datetime).split("\\s+")(1)
+      val dropoff_date = row(index.dropoff_datetime).split("\\s+")(0)
+      val dropoff_time = row(index.dropoff_datetime).split("\\s+")(1)
+
+      // data cleaning logic is inside the createTaxiRecord function
+      // It will filter out the records when
+      //    1. Calculated duration is too small or too large (usually indication of wrong timestamp)
+      //    2. Cost is less than or equal to 0
+      //    3. The distance is smaller than cartesian distance between pickup and dropoff point.
+      return createTaxiRecord(pickup_longitude, pickup_latitude, pickup_date, pickup_time, dropoff_longitude, dropoff_latitude, dropoff_date, dropoff_time, cost, distance)
+
+    } else if (trans_type == "bike") { // parse for bike data
+      val duration = row(index.duration).toInt
+      val pickup_longitude = row(index.pickup_long).toDouble
+      val pickup_latitude = row(index.pickup_lat).toDouble
+      val dropoff_longitude = row(index.dropoff_long).toDouble
+      val dropoff_latitude = row(index.dropoff_lat).toDouble
+      val pickup_date = convertDate(row(index.pickup_datetime).split("\\s+")(0))
+      val pickup_time = row(index.pickup_datetime).split("\\s+")(1)
+      val dropoff_date = convertDate(row(index.dropoff_datetime).split("\\s+")(0))
+      val dropoff_time = row(index.dropoff_datetime).split("\\s+")(1)
+      val id = row(index.id).toInt
+
+      // data cleaning logic is inside the createBikeRecord function
+      // It will filter out the records when
+      //    1. Calculated duration is more than 5s different from the recorded duration
+      //    2. Duration is too small (less than 60s)
+      return createBikeRecord(id, pickup_longitude, pickup_latitude, pickup_date, pickup_time, dropoff_longitude, dropoff_latitude, dropoff_date, dropoff_time, duration)
+
+    } else { // other topics will not be parsed
       return null
-    } else {
-      if (trans_type == "taxi") { //parse for taxi data
-        val pickup_longitude = row(5).toDouble
-        val pickup_latitude = row(6).toDouble
-        val dropoff_longitude = row(7).toDouble
-        val dropoff_latitude = row(8).toDouble
-        val cost = row(18).toFloat
-        val distance = row(10).toFloat
-        val pickup_date = row(1).split("\\s+")(0)
-        val pickup_time = row(1).split("\\s+")(1)
-        val dropoff_date = row(2).split("\\s+")(0)
-        val dropoff_time = row(2).split("\\s+")(1)
-
-        // data cleaning logic is inside the createTaxiRecord function
-        // It will filter out the records when
-        //    1. Calculated duration is too small or too large (usually indication of wrong timestamp)
-        //    2. Cost is less than or equal to 0
-        //    3. The distance is smaller than cartesian distance between pickup and dropoff point.
-        return createTaxiRecord(pickup_longitude, pickup_latitude, pickup_date, pickup_time, dropoff_longitude, dropoff_latitude, dropoff_date, dropoff_time, cost, distance)
-
-      } else if (trans_type == "bike") { // parse for bike data
-        val duration = row(0).toInt
-        val pickup_longitude = row(6).toDouble
-        val pickup_latitude = row(5).toDouble
-        val dropoff_longitude = row(10).toDouble
-        val dropoff_latitude = row(9).toDouble
-        val pickup_date = row(1).split("\\s+")(0)
-        val pickup_time = row(1).split("\\s+")(1)
-        val dropoff_date = row(2).split("\\s+")(0)
-        val dropoff_time = row(2).split("\\s+")(1)
-        val id = row(11).toInt
-
-        // data cleaning logic is inside the createBikeRecord function
-        // It will filter out the records when
-        //    1. Calculated duration is more than 5s different from the recorded duration
-        //    2. Duration is too small (less than 60s)
-        return createBikeRecord(id, pickup_longitude, pickup_latitude, pickup_date, pickup_time, dropoff_longitude, dropoff_latitude, dropoff_date, dropoff_time, duration)
-
-      } else { // other topics will not be parsed
-        return null
-      }
     }
   }
 
@@ -164,7 +183,7 @@ object App {
       redis_seq = redis_seq :+ (x.dropoff_x, x.dropoff_y, x.id + " " + x.dropoff_time)
     }
     if (!redis_seq.isEmpty) {
-      val redis_conn = new RedisClient("172.31.3.244", 6379, 0, Some("3c5bac3ecc34b94cf2ecb65d0b7a2ba7d664221f0116c50ba5557a41804e83e8"))
+      val redis_conn = new RedisClient(json("REDIS_IP").toString(), 6379, 0, Some(json("REDIS_PASSWORD").toString()))
       redis_conn.geoadd(trans_type,redis_seq)
       redis_conn.disconnect
     }
@@ -212,12 +231,24 @@ object App {
     return (dropoff_timestamp.getTime() / 1000 - pickup_timestamp.getTime() / 1000).toInt
   }
 
+  def convertDate(str: String): String = {
+    val simpleDateFormat: SimpleDateFormat = new SimpleDateFormat("mm/dd/yyyy")
+    val date = simpleDateFormat.parse(str)
+    val df = new SimpleDateFormat("yyyy-mm-dd")
+    return df.format(date)
+  }
+
   def isAllDigits(x: String) = (x != "") && (x forall Character.isDigit)
 }
 
 case class Record(id: Int, pickup_x: Double, pickup_y: Double, pickup_date: String, pickup_time: String,
                   dropoff_x: Double, dropoff_y: Double, dropoff_date: String, dropoff_time: String,
                   cost: Float, duration: Int, distance: Float)
+
+@SerialVersionUID(15L)
+class Index(var id: Int = -1, var pickup_long: Int = -1, var pickup_lat: Int = -1, var pickup_datetime: Int = -1,
+            var dropoff_long: Int = -1, var dropoff_lat: Int = -1, var dropoff_datetime: Int = -1,
+            var cost: Int = -1, var duration: Int = -1, var distance: Int = -1) extends Serializable
 
 /** Lazily instantiated singleton instance of SparkSession */
 object SparkSessionSingleton {
