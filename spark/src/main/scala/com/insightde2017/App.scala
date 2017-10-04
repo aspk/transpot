@@ -216,19 +216,12 @@ object App {
   }
 
   def createBikeRecord(tripId:Long, bikeId:Int, pickupLongitude: Double, pickupLatitude: Double, pickupDate: String, pickupTime: String, dropoffLongitude: Double, dropoffLatitude: Double, dropoffDate: String, dropoffTime: String, duration: Int): Record = {
-    val duration_calc = calculateDuration(pickupDate, pickupTime, dropoffDate, dropoffTime)
+    val durationCalc = calculateDuration(pickupDate, pickupTime, dropoffDate, dropoffTime)
 
     val cost = 0
     val distance = 0
 
-    println("duration:" + duration)
-    println("pickupDate:" + pickupDate)
-    println("pickupTime:" + pickupTime)
-    println("dropoffDate:" + dropoffDate)
-    println("dropoffTime:" + dropoffTime)
-    println("duration_calc:" + duration_calc)
-
-    if (math.abs(duration-duration_calc) <= 5 && duration >= 60) {
+    if (math.abs(duration-durationCalc) <= 5 && duration >= 60) {
       return Record(tripId, bikeId, pickupLongitude, pickupLatitude, pickupDate, pickupTime,
         dropoffLongitude, dropoffLatitude, dropoffDate, dropoffTime, cost, duration, distance)
     } else {
