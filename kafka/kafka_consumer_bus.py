@@ -7,7 +7,7 @@ import json
 # It is subscribed to one topic (all bus data).
 
 
-with open("configurations.json", 'r') as f:
+with open("../conf/configurations.json", 'r') as f:
     SETTINGS = json.load(f)
 
 

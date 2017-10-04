@@ -10,7 +10,7 @@ import json, time, os
 # This file is to query the redis and cassandra database,
 # return the results to front end
 
-with open("configurations.json", 'r') as f:
+with open("../conf/configurations.json", 'r') as f:
     SETTINGS = json.load(f)
 
 

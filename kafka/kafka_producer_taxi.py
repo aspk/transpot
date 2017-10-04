@@ -14,8 +14,8 @@ def gen_data(topic):
     producer = KafkaProducer(bootstrap_servers='localhost:9092', key_serializer=str.encode, value_serializer=str.encode)
     for x in xrange(int(sys.argv[2]), int(sys.argv[3])):
         source_file = directory + str(x).zfill(2) + ".csv"
+        count = 0
         with open(source_file) as f:
-            count = 0
             column_index = {}
             for line in f:
                 message_array = line.rstrip().split(',')
@@ -34,9 +34,9 @@ def gen_data(topic):
                                     message_array[column_index['cost']],
                                     message_array[column_index['distance']]))
                 producer.send(topic, key=str(count), value=message)
-                if count % 100 == 0:
+                if count % 10000 == 0:
                     print (message)
-                    time.sleep(0.05)
+#                    time.sleep(0.05)
                 count += 1
         f.close()
 
