@@ -41,7 +41,7 @@ This project utilizes the public available taxi, bike and bus data from New York
 
  In the producer, the header for the CSV file is parsed, and column order was determined by keyword matching. Different date/time format was unified.
 
- ### 2.2 Stream processing
+### 2.2 Stream processing
 
 The Spark Streaming processing can be found [here](https://github.com/funfine/transpot/blob/master/StreamProcessing/src/main/scala/com/insightde2017/App.scala)
 
@@ -56,13 +56,13 @@ There are four steps in the streaming process
  - Geojoin the coordinates to the pre-determined neighborhoods and calculate the historial average between any two neighborhoods.
  - Save the raw trip data and the historial average to different table in Cassandra
 
-###  2.3 WebUI
+### 2.3 WebUI
 
 Google Map API was called to display the map. Tornado was applied to support the webserver. JQuery library was utilized to work with Flask to query the databases.
 
 The front-end files can be found [here](https://github.com/funfine/transpot/tree/master/WebUI)
 
-## 3 Cluster configuration
+## 3. Cluster configuration
 A total of 12 AWS EC2 t2.medium instances were used for this project, 3 of which is used for Kafka, 4 for Spark, 1 for Redis, 3 for Cassandra and last one for webserver. They were setup using [Pegasus](https://github.com/InsightDataScience/pegasus).
 
 * Kafka topics were created with 15 partitions and a replication factor of 2.
@@ -70,7 +70,7 @@ A total of 12 AWS EC2 t2.medium instances were used for this project, 3 of which
 * Cassandra cluster has a total capacity of 300GB, with a replication factor of 2.
 * Redis instance has a 4GB memory, with on disk persistence.
 
-## 4 References
+## 4. References
 
 - Kafka-spark connector can be found [here](https://spark.apache.org/docs/2.1.1/streaming-kafka-0-8-integration.html)
 - Redis-spark connector can be found [here](https://github.com/debasishg/scala-redis)
