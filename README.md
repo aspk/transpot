@@ -65,16 +65,16 @@ The front-end files can be found [here](https://github.com/funfine/transpot/tree
 ## 3 Cluster configuration
 A total of 12 AWS EC2 t2.medium instances were used for this project, 3 of which is used for Kafka, 4 for Spark, 1 for Redis, 3 for Cassandra and last one for webserver. They were setup using [Pegasus](https://github.com/InsightDataScience/pegasus).
 
-Kafka topics were created with 15 partitions and a replication factor of 2.
-Spark cluster has 6 cores per worker, a total of 18 cores.
-Cassandra cluster has a total capacity of 300GB, with a replication factor of 2.
-Redis instance has a 4GB memory, with on disk persistence.
+* Kafka topics were created with 15 partitions and a replication factor of 2.
+* Spark cluster has 6 cores per worker, a total of 18 cores.
+* Cassandra cluster has a total capacity of 300GB, with a replication factor of 2.
+* Redis instance has a 4GB memory, with on disk persistence.
 
 ## 4 References
 
-Kafka-spark connector can be found [here](https://spark.apache.org/docs/2.1.1/streaming-kafka-0-8-integration.html)
-Redis-spark connector can be found [here](https://github.com/debasishg/scala-redis)
-Cassandra-spark connector can be found [here](https://github.com/datastax/spark-cassandra-connector)
-Redis driver in python can be found [here](https://github.com/andymccurdy/redis-py)
-Cassandra driver in python can be found [here](https://github.com/datastax/python-driver)
-Magellan API used for Geojoin with spark can be found [here](https://github.com/harsha2010/magellan)
+- Kafka-spark connector can be found [here](https://spark.apache.org/docs/2.1.1/streaming-kafka-0-8-integration.html)
+- Redis-spark connector can be found [here](https://github.com/debasishg/scala-redis)
+- Cassandra-spark connector can be found [here](https://github.com/datastax/spark-cassandra-connector)
+- Redis driver in python can be found [here](https://github.com/andymccurdy/redis-py)
+- Cassandra driver in python can be found [here](https://github.com/datastax/python-driver)
+- Magellan API used for Geojoin with spark can be found [here](https://github.com/harsha2010/magellan)
