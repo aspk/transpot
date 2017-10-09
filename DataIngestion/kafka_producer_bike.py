@@ -1,5 +1,5 @@
 from kafka import KafkaProducer, KafkaConsumer
-import time, sys
+import time, sys, re
 from utils_function import parse_header, convert_date
 
 
@@ -20,7 +20,9 @@ def gen_data(topic):
         with open(source_file) as f:
             column_index = {}
             for line in f:
-                message_array = line.rstrip().replace('"', '').split(',')
+                message_array = re.split(''';(?=(?:[^'"]|'[^']*'|"[^"]*")*$)''', line.rstrip())
+                for message in message_array:
+                    message = message.replace('"', '')
                 if len(message_array) == 0:
                     continue
                 if count == 0:

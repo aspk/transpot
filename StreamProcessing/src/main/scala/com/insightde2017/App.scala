@@ -26,8 +26,7 @@ import play.api.libs.json._
 object App {
 
   val relativePath = "configurations.json"
-  val conf = getClass.getResource(relativePath)
-  val json = Json.parse(Source.fromURL(conf).mkString)
+  val json = Json.parse(Source.fromURL(getClass.getResource(relativePath)).mkString)
 
   def main(args: Array[String]) {
 
