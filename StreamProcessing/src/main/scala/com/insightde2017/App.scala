@@ -43,10 +43,13 @@ object App {
 
     val spark = SparkSessionSingleton.getInstance(sc.getConf)
     import spark.implicits._
+    magellan.Utils.injectRules(spark)
 
     val neighborhoods = spark.sqlContext.read
       .format("magellan")
       .option("type", "geojson")
+      .option("magellan.index", "true")
+      .option("magellan.index.precision", "30")
       .load(json("NEIGHBORHOODS_FILE").as[String])
       .select($"polygon", $"metadata" ("neighborhood").as("neighborhood"))
 
@@ -105,9 +108,9 @@ object App {
       .withColumn("pickup_point", point($"pickup_x", $"pickup_y"))
       .withColumn("dropoff_point", point($"dropoff_x", $"dropoff_y"))
       .join(neighborhoods).where($"pickup_point" within $"polygon")
-      .withColumnRenamed("neighborhood", "pickup_neighborhood").drop("polygon")
+      .withColumnRenamed("neighborhood", "pickup_neighborhood").drop("polygon","index")
       .join(neighborhoods).where($"dropoff_point" within $"polygon")
-      .withColumnRenamed("neighborhood", "dropoff_neighborhood").drop("polygon")
+      .withColumnRenamed("neighborhood", "dropoff_neighborhood").drop("polygon","index")
 
     val curr = joined.rdd.map { x =>
       ((transType,x.getAs[String]("pickup_neighborhood"), x.getAs[String]("dropoff_neighborhood")),
